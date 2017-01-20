@@ -8,9 +8,68 @@
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 
+///! This module defines the interface and implementation for parsing an EDN
+///! input into a structured Datalog query.
+///!
+///! The query types are defined in the `query` crate, because they
+///! are shared between the parser (EDN -> query), the translator
+///! (query -> SQL), and the executor (query, SQL -> running code).
+///!
+///! The query input can be in two forms: a 'flat' human-oriented
+///! sequence:
+///!
+///! ```clojure
+///! [:find ?y :in $ ?x :where [?x :foaf/knows ?y]]
+///! ```
+///!
+///! or a more programmatically generable map:
+///!
+///! ```clojure
+///! {:find [?y]
+///!  :in [$]
+///!  :where [[?x :foaf/knows ?y]]}
+///! ```
+///!
+///! We parse by expanding the array format into four parts, treating them as the four
+///! parts of the map.
+
+
 extern crate edn;
+extern crate mentat_query;
 
 use std::collections::BTreeMap;
+
+use self::mentat_query::FindSpec;
+
+pub enum FindParseError {
+    InvalidInput(edn::Value),
+    EdnParseError(edn::parse::ParseError),
+}
+
+pub type FindParseResult = Result<FindSpec, FindParseError>;
+
+fn parse_find_parts(ins: Vec<edn::Value>, with: Vec<edn::Value>, find: Vec<edn::Value>) -> FindParseResult {
+    Ok(FindSpec::FindRel(vec!()))
+}
+
+fn parse_find_map(map: BTreeMap<edn::Value, edn::Value>) -> FindParseResult {
+    parse_find_parts(vec!(), vec!(), vec!())
+}
+
+fn parse_find_vec(vec: Vec<edn::Value>) -> FindParseResult {
+    // We expect a vector of Keyword, val, val, Keyword, ….
+    // We'll walk the whole vector. If we find a keyword we don't recognize,
+    // we'll bail out.
+    parse_find_parts(vec!(), vec!(), vec!())
+}
+
+pub fn parse_find(expr: edn::Value) -> FindParseResult {
+    match expr {
+        edn::Value::Vector(v) => parse_find_vec(v),
+        edn::Value::Map(m)    => parse_find_map(m),
+        _                     => Err(FindParseError::InvalidInput(expr))
+    }
+}
 
 /// Take a vector of EDN values, as would be extracted from an
 /// `edn::Value::Vector`, and turn it into a map.
