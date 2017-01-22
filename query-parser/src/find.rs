@@ -43,45 +43,81 @@ use self::mentat_query::FindSpec;
 
 pub enum FindParseError {
     InvalidInput(edn::Value),
+    MissingField(edn::Keyword),
     EdnParseError(edn::parse::ParseError),
 }
 
 pub type FindParseResult = Result<FindSpec, FindParseError>;
 
-fn parse_find_parts(ins: Vec<edn::Value>, with: Vec<edn::Value>, find: Vec<edn::Value>) -> FindParseResult {
+fn parse_find_parts(ins: &[edn::Value], with: &[edn::Value], find: &[edn::Value]) -> FindParseResult {
     Ok(FindSpec::FindRel(vec!()))
 }
 
-fn parse_find_map(map: BTreeMap<edn::Value, edn::Value>) -> FindParseResult {
-    parse_find_parts(vec!(), vec!(), vec!())
-}
+fn parse_find_map(map: BTreeMap<edn::Keyword, Vec<edn::Value>>) -> FindParseResult {
+    // Eagerly awaiting `const fn`.
+    let kw_find = edn::Keyword::new("find");
+    let kw_in = edn::Keyword::new("in");
+    let kw_with = edn::Keyword::new("with");
 
-fn parse_find_vec(vec: Vec<edn::Value>) -> FindParseResult {
-    // We expect a vector of Keyword, val, val, Keyword, ….
-    // We'll walk the whole vector. If we find a keyword we don't recognize,
-    // we'll bail out.
-    parse_find_parts(vec!(), vec!(), vec!())
-}
-
-pub fn parse_find(expr: edn::Value) -> FindParseResult {
-    match expr {
-        edn::Value::Vector(v) => parse_find_vec(v),
-        edn::Value::Map(m)    => parse_find_map(m),
-        _                     => Err(FindParseError::InvalidInput(expr))
+    if let Some(find) = map.get(&kw_find) {
+        if let Some(ins) = map.get(&kw_in) {
+            return parse_find_parts(ins, map.get(&kw_with).unwrap_or([edn::Value; 0]()), find);
+        } else {
+            return Err(FindParseError::MissingField(kw_in));
+        }
+    } else {
+        return Err(FindParseError::MissingField(kw_find));
     }
 }
 
-/// Take a vector of EDN values, as would be extracted from an
+fn parse_find_edn_map(map: BTreeMap<edn::Value, edn::Value>) -> FindParseResult {
+    // Every key must be a Keyword. Every value must be a Vec.
+    let mut m = BTreeMap::new();
+
+    if map.is_empty() {
+        return parse_find_map(m);
+    }
+
+    for (k, v) in map {
+        if let edn::Value::Keyword(kw) = k {
+            if let edn::Value::Vector(vec) = v {
+                m.insert(kw, vec);
+                continue;
+            } else {
+                return Err(FindParseError::InvalidInput(v));
+            }
+        } else {
+            return Err(FindParseError::InvalidInput(k));
+        }
+    }
+
+    parse_find_map(m)
+}
+
+pub fn parse_find(expr: edn::Value) -> FindParseResult {
+    // No `match` because scoping and use of `expr` in error handling is nuts.
+    if let edn::Value::Map(m) = expr {
+        return parse_find_edn_map(m);
+    }
+    if let edn::Value::Vector(ref v) = expr {
+        if let Some(m) = vec_to_keyword_map(v) {
+            return parse_find_map(m);
+        }
+    }
+    return Err(FindParseError::InvalidInput(expr));
+}
+
+/// Take a slice of EDN values, as would be extracted from an
 /// `edn::Value::Vector`, and turn it into a map.
 ///
-/// The vector must consist of subsequences of an initial plain
+/// The slice must consist of subsequences of an initial plain
 /// keyword, followed by one or more non-plain-keyword values.
 ///
 /// The plain keywords are used as keys into the resulting map.
 /// The values are accumulated into vectors.
 ///
 /// Invalid input causes this function to return `None`.
-fn vec_to_keyword_map(vec: Vec<edn::Value>) -> Option<BTreeMap<edn::Keyword, Vec<edn::Value>>> {
+fn vec_to_keyword_map(vec: &[edn::Value]) -> Option<BTreeMap<edn::Keyword, Vec<edn::Value>>> {
     let mut m = BTreeMap::new();
 
     if vec.is_empty() {
@@ -127,7 +163,7 @@ fn vec_to_keyword_map(vec: Vec<edn::Value>) -> Option<BTreeMap<edn::Keyword, Vec
         None
     }
 
-    let mut bits = vec.as_slice();
+    let mut bits = vec;
     while !bits.is_empty() {
         match step(bits) {
             Some((k, v)) => {
@@ -159,7 +195,7 @@ fn test_vec_to_keyword_map() {
                      edn::Value::Keyword(bar.clone()),
                      edn::Value::Integer(4));
 
-    let m = vec_to_keyword_map(input).unwrap();
+    let m = vec_to_keyword_map(&input).unwrap();
 
     assert!(m.contains_key(&foo));
     assert!(m.contains_key(&bar));
@@ -175,31 +211,31 @@ fn test_vec_to_keyword_map() {
 
     // Trailing keywords aren't allowed.
     assert_eq!(None,
-               vec_to_keyword_map(vec!(edn::Value::Keyword(foo.clone()))));
+               vec_to_keyword_map(&vec!(edn::Value::Keyword(foo.clone()))));
     assert_eq!(None,
-               vec_to_keyword_map(vec!(edn::Value::Keyword(foo.clone()),
+               vec_to_keyword_map(&vec!(edn::Value::Keyword(foo.clone()),
                                        edn::Value::Integer(2),
                                        edn::Value::Keyword(bar.clone()))));
 
     // Duplicate keywords aren't allowed.
     assert_eq!(None,
-               vec_to_keyword_map(vec!(edn::Value::Keyword(foo.clone()),
-                                       edn::Value::Integer(2),
-                                       edn::Value::Keyword(foo.clone()),
-                                       edn::Value::Integer(1))));
+               vec_to_keyword_map(&vec!(edn::Value::Keyword(foo.clone()),
+                                        edn::Value::Integer(2),
+                                        edn::Value::Keyword(foo.clone()),
+                                        edn::Value::Integer(1))));
 
     // Starting with anything but a keyword isn't allowed.
     assert_eq!(None,
-               vec_to_keyword_map(vec!(edn::Value::Integer(2),
+               vec_to_keyword_map(&vec!(edn::Value::Integer(2),
                                        edn::Value::Keyword(foo.clone()),
                                        edn::Value::Integer(1))));
 
     // Consecutive keywords aren't allowed.
     assert_eq!(None,
-               vec_to_keyword_map(vec!(edn::Value::Keyword(foo.clone()),
+               vec_to_keyword_map(&vec!(edn::Value::Keyword(foo.clone()),
                                        edn::Value::Keyword(bar.clone()),
                                        edn::Value::Integer(1))));
 
     // Empty lists return an empty map.
-    assert_eq!(BTreeMap::new(), vec_to_keyword_map(vec!()).unwrap());
+    assert_eq!(BTreeMap::new(), vec_to_keyword_map(&vec!()).unwrap());
 }
