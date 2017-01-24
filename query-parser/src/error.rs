@@ -8,7 +8,17 @@
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 
-pub mod error;
-pub mod util;
-pub mod find;
+extern crate edn;
+extern crate mentat_query;
+
+use self::edn::Value::PlainSymbol;
+use self::mentat_query::FindSpec;
+
+pub enum FindParseError {
+    InvalidInput(edn::Value),
+    MissingField(edn::Keyword),
+    EdnParseError(edn::parse::ParseError),
+}
+
+pub type FindParseResult = Result<FindSpec, FindParseError>;
 
