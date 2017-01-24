@@ -43,25 +43,7 @@ use self::edn::Value::PlainSymbol;
 use self::mentat_query::{FindSpec, SrcVar, Variable};
 
 use super::error::{FindParseError, FindParseResult};
-
-fn values_to_variables(vals: &[edn::Value]) -> Result<Vec<Variable>, FindParseError> {
-    let mut out: Vec<Variable> = Vec::with_capacity(vals.len());
-    for v in vals {
-        if let PlainSymbol(ref sym) = *v {
-            if sym.0.starts_with('?') {
-                out.push(Variable(sym.clone()));
-                continue;
-            }
-        }
-        return Err(FindParseError::InvalidInput(v.clone()));
-    }
-    return Ok(out);
-}
-
-#[test]
-fn test_values_to_variables() {
-    // TODO
-}
+use super::parse::values_to_variables;
 
 fn parse_find_parts(find: &[edn::Value],
                     ins: Option<&[edn::Value]>,

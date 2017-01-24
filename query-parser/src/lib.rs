@@ -8,7 +8,8 @@
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 
-pub mod error;
-pub mod util;
+mod error;
+mod util;
+mod parse;
 pub mod find;
 

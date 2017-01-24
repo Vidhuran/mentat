@@ -42,7 +42,9 @@ use std::collections::BTreeMap;
 use self::edn::Value::PlainSymbol;
 use self::mentat_query::{FindSpec, SrcVar, Variable};
 
-fn values_to_variables(vals: &[edn::Value]) -> Result<Vec<Variable>, FindParseError> {
+use super::error::{FindParseError, FindParseResult};
+
+pub fn values_to_variables(vals: &[edn::Value]) -> Result<Vec<Variable>, FindParseError> {
     let mut out: Vec<Variable> = Vec::with_capacity(vals.len());
     for v in vals {
         if let PlainSymbol(ref sym) = *v {
@@ -61,91 +63,19 @@ fn test_values_to_variables() {
     // TODO
 }
 
-fn parse_find(find: &[edn::Value]) -> FindParseError {
-}
-
-fn parse_find_parts(find: &[edn::Value],
-                    ins: Option<&[edn::Value]>,
-                    with: Option<&[edn::Value]>,
-                    wheres: &[edn::Value]) -> FindParseResult {
-    // :find must be an array of plain var symbols (?foo), pull expressions, and aggregates.
-    // For now we only support variables and the annotations necessary to declare which
-    // flavor of :find we want:
-    //     ?x ?y ?z       = FindRel
-    //     [?x ...]       = FindColl
-    //     ?x .           = FindScalar
-    //     [?x ?y ?z]     = FindTuple
-    //
-    // :in must be an array of sources ($), rules (%), and vars (?). For now we only support the
-    // default source. :in can be omitted, in which case the default is equivalent to `:in $`.
-    // TODO: process `ins`.
-    let source = SrcVar::DefaultSrc;
-
-    // :with is an array of variables. This is simple, so we don't use a parser.
-    let with_vars = with.map(values_to_variables);
-
-    //
-    // :wheres is a whole datastructure.
-
-    Ok(FindSpec::FindRel(vec!()))
-}
-
-fn parse_find_map(map: BTreeMap<edn::Keyword, Vec<edn::Value>>) -> FindParseResult {
-    // Eagerly awaiting `const fn`.
-    let kw_find = edn::Keyword::new("find");
-    let kw_in = edn::Keyword::new("in");
-    let kw_with = edn::Keyword::new("with");
-    let kw_where = edn::Keyword::new("where");
-
-    // Oh, if only we had `guard`.
-    if let Some(find) = map.get(&kw_find) {
-        if let Some(wheres) = map.get(&kw_where) {
-            return parse_find_parts(find,
-                                    map.get(&kw_in).map(|x| x.as_slice()),
-                                    map.get(&kw_with).map(|x| x.as_slice()),
-                                    wheres);
-        } else {
-            return Err(FindParseError::MissingField(kw_where));
-        }
-    } else {
-        return Err(FindParseError::MissingField(kw_find));
-    }
-}
-
-fn parse_find_edn_map(map: BTreeMap<edn::Value, edn::Value>) -> FindParseResult {
-    // Every key must be a Keyword. Every value must be a Vec.
-    let mut m = BTreeMap::new();
-
-    if map.is_empty() {
-        return parse_find_map(m);
-    }
-
-    for (k, v) in map {
-        if let edn::Value::Keyword(kw) = k {
-            if let edn::Value::Vector(vec) = v {
-                m.insert(kw, vec);
-                continue;
-            } else {
-                return Err(FindParseError::InvalidInput(v));
-            }
-        } else {
-            return Err(FindParseError::InvalidInput(k));
-        }
-    }
-
-    parse_find_map(m)
-}
-
-pub fn parse_find(expr: edn::Value) -> FindParseResult {
-    // No `match` because scoping and use of `expr` in error handling is nuts.
-    if let edn::Value::Map(m) = expr {
-        return parse_find_edn_map(m);
-    }
-    if let edn::Value::Vector(ref v) = expr {
-        if let Some(m) = vec_to_keyword_map(v) {
-            return parse_find_map(m);
-        }
-    }
-    return Err(FindParseError::InvalidInput(expr));
+// Parse a sequence of values into one of four find specs.
+//
+// `:find` must be an array of plain var symbols (?foo), pull expressions, and aggregates.
+// For now we only support variables and the annotations necessary to declare which
+// flavor of :find we want:
+// 
+//
+//     `?x ?y ?z  `     = FindRel
+//     `[?x ...]  `     = FindColl
+//     `?x .      `     = FindScalar
+//     `[?x ?y ?z]`     = FindTuple
+//
+fn find_seq_to_find_spec(find: &[edn::Value]) -> FindParseResult {
+    Err(FindParseError::InvalidInput(find[0].clone()))
 }
 
