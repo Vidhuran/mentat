@@ -8,59 +8,105 @@
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 
-///! This module defines the interface and implementation for parsing an EDN
-///! input into a structured Datalog query.
-///!
-///! The query types are defined in the `query` crate, because they
-///! are shared between the parser (EDN -> query), the translator
-///! (query -> SQL), and the executor (query, SQL -> running code).
-///!
-///! The query input can be in two forms: a 'flat' human-oriented
-///! sequence:
-///!
-///! ```clojure
-///! [:find ?y :in $ ?x :where [?x :foaf/knows ?y]]
-///! ```
-///!
-///! or a more programmatically generable map:
-///!
-///! ```clojure
-///! {:find [?y]
-///!  :in [$]
-///!  :where [[?x :foaf/knows ?y]]}
-///! ```
-///!
-///! We parse by expanding the array format into four parts, treating them as the four
-///! parts of the map.
+#![allow(dead_code)]
 
-
+extern crate combine;
 extern crate edn;
 extern crate mentat_query;
 
 use std::collections::BTreeMap;
 
+use self::combine::{any, eof, many, optional, parser, satisfy_map, token, Parser, ParseResult, Stream};
+use self::combine::combinator::{Expected, FnParser};
 use self::edn::Value::PlainSymbol;
-use self::mentat_query::{FindSpec, SrcVar, Variable};
+use self::mentat_query::{Element, FindSpec, SrcVar, Variable};
 
 use super::error::{FindParseError, FindParseResult};
 
-pub fn values_to_variables(vals: &[edn::Value]) -> Result<Vec<Variable>, FindParseError> {
-    let mut out: Vec<Variable> = Vec::with_capacity(vals.len());
-    for v in vals {
-        if let PlainSymbol(ref sym) = *v {
-            if sym.0.starts_with('?') {
-                out.push(Variable(sym.clone()));
-                continue;
-            }
-        }
-        return Err(FindParseError::InvalidInput(v.clone()));
-    }
-    return Ok(out);
+pub struct FindSp<I>(::std::marker::PhantomData<fn(I) -> I>);
+
+type FindSpParser<O, I> = Expected<FnParser<I, fn(I) -> ParseResult<O, I>>>;
+
+fn fn_parser<O, I>(f: fn(I) -> ParseResult<O, I>, err: &'static str) -> FindSpParser<O, I>
+    where I: Stream<Item = edn::Value>
+{
+    parser(f).expected(err)
+}
+
+impl<I> FindSp<I>
+    where I: Stream<Item = edn::Value>
+{
+   fn variable() -> FindSpParser<Variable, I> {
+       fn_parser(FindSp::<I>::variable_, "variable")
+   }
+
+   fn variable_(input: I) -> ParseResult<Variable, I> {
+       return satisfy_map(|x: edn::Value| super::util::value_to_variable(&x)).parse_stream(input);
+   }
+
+   fn period() -> FindSpParser<(), I> {
+       fn_parser(FindSp::<I>::period_, "period")
+   }
+
+   fn period_(input: I) -> ParseResult<(), I> {
+       return satisfy_map(|x: edn::Value| {
+           if let PlainSymbol(ref s) = x {
+               if s.0.as_str() == "." {
+                   return Some(());
+               }
+           }
+           return None;
+       }).parse_stream(input);
+   }
+
+   fn find_scalar() -> FindSpParser<FindSpec, I> {
+       fn_parser(FindSp::<I>::find_scalar_, "find_scalar")
+   }
+
+   fn find_scalar_(input: I) -> ParseResult<FindSpec, I> {
+       return satisfy_map(|x: edn::Value| if let edn::Value::Vector(y) = x {
+           let mut p = (FindSp::variable(), FindSp::period(), eof())
+               .map(|(var, _, _)| FindSpec::FindScalar(Element::Variable(var)));
+           let r = p.parse_lazy(&y[..]).into();
+           match r {
+               Ok((r, _)) => Some(r),
+               _ => None,
+           }
+       } else {
+           None
+       })
+       .parse_stream(input);
+   }
+}
+/*
+           if let edn::Value::Vector(y) = x {
+               let mut p = (FindSp::variable(), eof()).map(|(var, _)| var);
+               p.parse_lazy(y.as_slice()).map(|x| x.0)
+           } else {
+               None
+           }
+           */
+
+#[test]
+fn test_find_sp_variable() {
+    let sym = edn::PlainSymbol("?x".to_string());
+    let input = [edn::Value::PlainSymbol(sym.clone())];
+    let mut parser = FindSp::variable();
+    let result = parser.parse(&input[..]);
+    assert_eq!(result,
+               Ok((Variable(sym), &[][..])));
 }
 
 #[test]
-fn test_values_to_variables() {
-    // TODO
+fn test_find_scalar() {
+    let sym = edn::PlainSymbol("?x".to_string());
+    let period = edn::PlainSymbol(".".to_string());
+    let input = [edn::Value::PlainSymbol(sym.clone()),
+                 edn::Value::PlainSymbol(period.clone())];
+    let mut parser = FindSp::find_scalar();
+    let result = parser.parse(&input[..]);
+    assert_eq!(result,
+               Ok((FindSpec::FindScalar(Element::Variable(Variable(sym))), &[][..])));
 }
 
 // Parse a sequence of values into one of four find specs.
@@ -68,7 +114,7 @@ fn test_values_to_variables() {
 // `:find` must be an array of plain var symbols (?foo), pull expressions, and aggregates.
 // For now we only support variables and the annotations necessary to declare which
 // flavor of :find we want:
-// 
+//
 //
 //     `?x ?y ?z  `     = FindRel
 //     `[?x ...]  `     = FindColl

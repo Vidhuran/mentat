@@ -9,11 +9,45 @@
 // specific language governing permissions and limitations under the License.
 
 extern crate edn;
+extern crate mentat_query;
 
 use std::collections::BTreeMap;
 
 use self::edn::Value::PlainSymbol;
+use self::mentat_query::{FindSpec, SrcVar, Variable};
 
+use super::error::{FindParseError, FindParseResult};
+
+/// If the provided EDN value is a PlainSymbol beginning with '?', return
+/// it wrapped in a Variable. If not, return None.
+pub fn value_to_variable(v: &edn::Value) -> Option<Variable> {
+    if let PlainSymbol(ref sym) = *v {
+        if sym.0.starts_with('?') {
+            return Some(Variable(sym.clone()));
+        }
+    }
+    return None;
+}
+
+/// If the provided slice of EDN values are all variables as
+/// defined by `value_to_variable`, return a Vec of Variables.
+/// Otherwise, return an error.
+pub fn values_to_variables(vals: &[edn::Value]) -> Result<Vec<Variable>, FindParseError> {
+    let mut out: Vec<Variable> = Vec::with_capacity(vals.len());
+    for v in vals {
+        if let Some(var) = value_to_variable(v) {
+            out.push(var);
+            continue;
+        }
+        return Err(FindParseError::InvalidInput(v.clone()));
+    }
+    return Ok(out);
+}
+
+#[test]
+fn test_values_to_variables() {
+    // TODO
+}
 /// Take a slice of EDN values, as would be extracted from an
 /// `edn::Value::Vector`, and turn it into a map.
 ///

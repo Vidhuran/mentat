@@ -43,7 +43,7 @@ use self::edn::Value::PlainSymbol;
 use self::mentat_query::{FindSpec, SrcVar, Variable};
 
 use super::error::{FindParseError, FindParseResult};
-use super::parse::values_to_variables;
+use super::util::values_to_variables;
 
 fn parse_find_parts(find: &[edn::Value],
                     ins: Option<&[edn::Value]>,
